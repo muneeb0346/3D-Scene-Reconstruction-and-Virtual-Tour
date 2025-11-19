@@ -26,6 +26,15 @@ def calculate_essential_matrix(kp1, kp2, matches, K):
     
     return E, mask, pts1, pts2
 
+def calculate_essential_matrix_from_points(pts1, pts2, K, ransac_thresh=3.0, prob=0.999):
+    """Estimate Essential matrix directly from Nx2 point arrays.
+    Returns (E, mask) where mask is Nx1 inlier mask.
+    """
+    pts1_f = np.asarray(pts1, dtype=np.float32)
+    pts2_f = np.asarray(pts2, dtype=np.float32)
+    E, mask = cv2.findEssentialMat(pts1_f, pts2_f, K, method=cv2.RANSAC, prob=prob, threshold=ransac_thresh)
+    return E, mask, pts1_f, pts2_f
+
 def recover_camera_pose(E, pts1, pts2, K):
     """
     Decomposes E into R and t.
@@ -46,6 +55,20 @@ def triangulate_points(R, t, K, pts1, pts2):
     points_4d = cv2.triangulatePoints(P1, P2, pts1_t, pts2_t)
     points_3d = (points_4d[:3] / points_4d[3]).T
     return points_3d
+
+def filter_cheirality(R, t, K, pts1, pts2):
+    """Perform cheirality check and return mask selecting points in front of both cameras."""
+    P1 = K @ np.hstack((np.eye(3), np.zeros((3, 1))))
+    P2 = K @ np.hstack((R, t))
+    pts1_t = pts1.T
+    pts2_t = pts2.T
+    points_4d = cv2.triangulatePoints(P1, P2, pts1_t, pts2_t)
+    points_3d = (points_4d[:3] / points_4d[3]).T
+    # depth in camera 1 is Z, in camera 2 is third component of R*X + t
+    depth_cam1 = points_3d[:, 2]
+    depth_cam2 = (R @ points_3d.T + t).T[:, 2]
+    mask = (depth_cam1 > 0) & (depth_cam2 > 0)
+    return mask, points_3d
 
 def get_inlier_points(mask, pts1, pts2):
     """
