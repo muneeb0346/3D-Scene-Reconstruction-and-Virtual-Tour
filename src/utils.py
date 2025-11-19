@@ -1,52 +1,68 @@
 import cv2
 import numpy as np
 import os
-import matplotlib.pyplot as plt
 
-def load_images_from_folder(folder_path):
+def load_images_from_folder(folder_path, target_width=1024):
     """
-    Loads all images from a specified folder in sorted order.
-    Returns a list of images in grayscale.
+    Loads images, converts to grayscale, and resizes them if they are too large.
+    
+    Args:
+        folder_path: Path to image directory
+        target_width: Max width for images (default 1024px to save memory)
     """
     images = []
-    # Ensure files are sorted to maintain consecutive order (01, 02, 03...)
+    
+    if not os.path.exists(folder_path):
+        print(f"Error: Folder {folder_path} not found.")
+        return []
+
     filenames = sorted(os.listdir(folder_path))
     
     for filename in filenames:
-        img_path = os.path.join(folder_path, filename)
-        # Load image in grayscale as required for SIFT/ORB
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE) 
-        if img is not None:
-            images.append(img)
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+            img_path = os.path.join(folder_path, filename)
+            
+            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+            
+            if img is not None:
+                h, w = img.shape
+                if w > target_width:
+                    scale = target_width / w
+                    new_h = int(h * scale)
+                    img = cv2.resize(img, (target_width, new_h))
+                
+                images.append(img)
             
     print(f"Successfully loaded {len(images)} images from {folder_path}")
+    print(f"Images resized to max width: {target_width}px")
     return images
 
-def get_sift_matches(img1, img2, ratio_threshold=0.7):
+def get_sift_matches(img1, img2, ratio_threshold=0.7, max_features=5000):
     """
-    Finds and filters SIFT matches between two images using 
-    Lowe's Ratio Test.
+    Finds SIFT matches. Limits total features to 'max_features' to prevent
+    Memory Errors on large images.
     """
-    # 1. Create SIFT detector
-    sift = cv2.SIFT_create()
+    sift = cv2.SIFT_create(nfeatures=max_features)
 
-    # 2. Detect keypoints and compute descriptors
     kp1, des1 = sift.detectAndCompute(img1, None)
     kp2, des2 = sift.detectAndCompute(img2, None)
-
-    # 3. Use FLANN based matcher for speed
+    
+    if des1 is None or des2 is None:
+        return kp1, kp2, []
+    
     FLANN_INDEX_KDTREE = 1
     index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-    search_params = dict(checks=50) # or pass empty dictionary
+    search_params = dict(checks=50) 
     
     flann = cv2.FlannBasedMatcher(index_params, search_params)
     
-    # 4. Find all matches (k=2) to apply Lowe's test
-    all_matches = flann.knnMatch(des1, des2, k=2)
+    try:
+        matches = flann.knnMatch(des1, des2, k=2)
+    except cv2.error:
+        return kp1, kp2, []
 
-    # 5. Apply Lowe's Ratio Test to filter good matches
     good_matches = []
-    for m, n in all_matches:
+    for m, n in matches:
         if m.distance < ratio_threshold * n.distance:
             good_matches.append(m)
             
@@ -54,9 +70,8 @@ def get_sift_matches(img1, img2, ratio_threshold=0.7):
 
 def draw_matches(img1, kp1, img2, kp2, matches):
     """
-    Creates a visualization of the matches between two images.
+    Visualizes matches.
     """
-    # cv2.drawMatches needs lists, not just the 'matches' object
     img_matches = cv2.drawMatches(img1, kp1, img2, kp2, matches, None, 
                                   flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
     return img_matches
