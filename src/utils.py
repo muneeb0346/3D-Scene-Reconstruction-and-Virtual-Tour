@@ -5,13 +5,8 @@ import os
 def load_images_from_folder(folder_path, target_width=1024):
     """
     Loads images, converts to grayscale, and resizes them if they are too large.
-    
-    Args:
-        folder_path: Path to image directory
-        target_width: Max width for images (default 1024px to save memory)
     """
     images = []
-    
     if not os.path.exists(folder_path):
         print(f"Error: Folder {folder_path} not found.")
         return []
@@ -21,7 +16,6 @@ def load_images_from_folder(folder_path, target_width=1024):
     for filename in filenames:
         if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
             img_path = os.path.join(folder_path, filename)
-            
             img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
             
             if img is not None:
@@ -30,20 +24,17 @@ def load_images_from_folder(folder_path, target_width=1024):
                     scale = target_width / w
                     new_h = int(h * scale)
                     img = cv2.resize(img, (target_width, new_h))
-                
                 images.append(img)
             
     print(f"Successfully loaded {len(images)} images from {folder_path}")
     print(f"Images resized to max width: {target_width}px")
     return images
 
-def get_sift_matches(img1, img2, ratio_threshold=0.7, max_features=5000):
+def get_sift_matches(img1, img2, ratio_threshold=0.85, max_features=5000):
     """
-    Finds SIFT matches. Limits total features to 'max_features' to prevent
-    Memory Errors on large images.
+    Finds SIFT matches using Lowe's Ratio Test.
     """
     sift = cv2.SIFT_create(nfeatures=max_features)
-
     kp1, des1 = sift.detectAndCompute(img1, None)
     kp2, des2 = sift.detectAndCompute(img2, None)
     
@@ -69,9 +60,24 @@ def get_sift_matches(img1, img2, ratio_threshold=0.7, max_features=5000):
     return kp1, kp2, good_matches
 
 def draw_matches(img1, kp1, img2, kp2, matches):
-    """
-    Visualizes matches.
-    """
     img_matches = cv2.drawMatches(img1, kp1, img2, kp2, matches, None, 
                                   flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
     return img_matches
+
+def save_point_cloud_to_ply(points_3d, filename):
+    """
+    Saves 3D points to a .ply file (Manual Requirement Phase 1).
+    """
+    with open(filename, 'w') as f:
+        f.write("ply\n")
+        f.write("format ascii 1.0\n")
+        f.write(f"element vertex {len(points_3d)}\n")
+        f.write("property float x\n")
+        f.write("property float y\n")
+        f.write("property float z\n")
+        f.write("end_header\n")
+        
+        for p in points_3d:
+            f.write(f"{p[0]} {p[1]} {p[2]}\n")
+            
+    print(f"Saved point cloud to {filename}")
