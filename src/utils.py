@@ -31,7 +31,7 @@ def load_images_from_folder(folder_path, target_width=1024):
     print(f"Images resized to max width: {target_width}px")
     return images
 
-def get_sift_matches(img1, img2, ratio_threshold=0.85, max_features=5000):
+def get_sift_matches(img1, img2, ratio_threshold=0.65, max_features=5000):
     """
     Finds SIFT matches using Lowe's Ratio Test.
     """
