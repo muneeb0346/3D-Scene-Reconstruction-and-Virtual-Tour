@@ -4,3 +4,6 @@
 notebooks/**.py
 ***_submission.ipynb
 ignore_this_folder/
+venv/**
+env/**
+.venv/**

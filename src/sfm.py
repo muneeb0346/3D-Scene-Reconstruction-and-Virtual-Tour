@@ -1,31 +1,36 @@
 from typing import Dict, List, Tuple
+import gc
 
 import cv2
 import numpy as np
 from scipy.optimize import least_squares
 
-# Use absolute imports so notebooks that add `src` to sys.path can import `sfm` directly.
 from reconstruction import (
     calculate_essential_matrix_from_points,
     recover_camera_pose,
     triangulate_points,
 )
+from utils import set_global_memory_mode, downscale_image, to_float32, free_large_objects
 
 
 class IncrementalSfM:
-    def __init__(self, images: List[np.ndarray], K: np.ndarray):
+    def __init__(self, images: List[np.ndarray], K: np.ndarray, enable_memory_mode: bool = True, max_image_side: int = 1280):
+        if enable_memory_mode:
+            set_global_memory_mode()
+            images = [downscale_image(img, max_side=max_image_side) for img in images]
+            print(f"Memory mode enabled: images downscaled to max {max_image_side}px.")
+        
         self.images = images
-        self.K = K.astype(np.float32)
+        self.K = to_float32(K.astype(np.float32))
 
-        # State
         self.point_cloud: List[np.ndarray] = []
         self.point_colors: List[List[int]] = []
         self.camera_poses: List[Tuple[np.ndarray, np.ndarray]] = []
         self.image_pose_index: Dict[int, int] = {}
         self.matches_2d_3d: Dict[Tuple[int, int], int] = {}
 
-        # Cache features per image
         self.features = [self.detect_features(img) for img in images]
+        gc.collect()
 
     def detect_features(self, img: np.ndarray):
         sift = cv2.SIFT_create(nfeatures=5000)
@@ -75,6 +80,7 @@ class IncrementalSfM:
         return bool(depth_a > 0 and depth_b > 0)
 
     def initialize_structure(self, idx1: int = 0, idx2: int = 1) -> None:
+        print(f"--- Initializing Map with View {idx1} and View {idx2} ---")
         matches = self.get_matches(idx1, idx2)
         if len(matches) < 20:
             raise RuntimeError("Insufficient matches for initialization.")
@@ -113,11 +119,10 @@ class IncrementalSfM:
         idxs2 = idxs2[finite_mask]
         points_3d = points_3d[finite_mask]
 
-        # Register poses
         self._register_pose(idx1, np.eye(3), np.zeros((3, 1)))
         self._register_pose(idx2, R, t)
 
-        # Seed map
+        added = 0
         for p3d, pt1, idx_q, idx_t in zip(points_3d, pts1_final, idxs1, idxs2):
             color = self._grab_color(self.images[idx1], pt1)
             p3d_idx = len(self.point_cloud)
@@ -125,14 +130,20 @@ class IncrementalSfM:
             self.point_colors.append(color)
             self.matches_2d_3d[(idx1, idx_q)] = p3d_idx
             self.matches_2d_3d[(idx2, idx_t)] = p3d_idx
+            added += 1
+        print(f"Initialized with {added} seed points and poses for views {idx1} / {idx2}.")
+        gc.collect()
 
     def process_next_view(self, new_idx: int) -> bool:
+        print(f"--- Processing View {new_idx} ---")
         available_prev = [idx for idx in range(new_idx) if idx in self.image_pose_index]
         if not available_prev:
+            print("No previous registered poses to align against; skipping.")
             return False
 
         kp_curr, _ = self.features[new_idx]
         if len(kp_curr) == 0:
+            print("No keypoints detected in current image; skipping.")
             return False
 
         object_points: List[np.ndarray] = []
@@ -157,6 +168,7 @@ class IncrementalSfM:
                     triangulation_map.setdefault(prev_idx, []).append(m)
 
         if len(object_points) < 6:
+            print(f"Skipping View {new_idx}: Not enough 2D-3D matches ({len(object_points)}).")
             return False
 
         object_points_np = np.asarray(object_points, dtype=np.float32)
@@ -174,23 +186,27 @@ class IncrementalSfM:
         )
 
         if not success or inliers is None or len(inliers) < 6:
+            print("PnP failed or returned too few inliers.")
             return False
 
         R_curr, _ = cv2.Rodrigues(rvec)
         t_curr = tvec.reshape(3, 1)
         self._register_pose(new_idx, R_curr, t_curr)
+        print(f"Pose recovered with {len(inliers)} inliers from {len(object_points)} correspondences.")
 
-        # Wire inlier associations
         for idx in inliers.flatten():
             prev_idx, match = pnp_match_sources[idx]
             p3d_idx = self.matches_2d_3d[(prev_idx, match.queryIdx)]
             self.matches_2d_3d[(new_idx, match.trainIdx)] = p3d_idx
 
-        # Triangulate new points
         total_added = 0
         for prev_idx, match_list in triangulation_map.items():
             added = self._triangulate_new_points(prev_idx, new_idx, match_list)
+            if added:
+                print(f"\tTriangulated {added} pts with view {prev_idx}.")
             total_added += added
+        print(f"Expanded map with {total_added} new points.")
+        gc.collect()
         return True
 
     def _triangulate_new_points(self, prev_idx: int, curr_idx: int, matches: List[cv2.DMatch]) -> int:
@@ -238,9 +254,6 @@ class IncrementalSfM:
             for p, c in zip(self.point_cloud, self.point_colors):
                 f.write(f"{p[0]} {p[1]} {p[2]} {int(c[0])} {int(c[1])} {int(c[2])}\n")
 
-
-# ---------- Bundle Adjustment (optional refinement) ----------
-
 def _rotate(points: np.ndarray, rot_vecs: np.ndarray) -> np.ndarray:
     theta = np.linalg.norm(rot_vecs, axis=1)[:, np.newaxis]
     with np.errstate(invalid="ignore"):
@@ -253,12 +266,9 @@ def _rotate(points: np.ndarray, rot_vecs: np.ndarray) -> np.ndarray:
 
 
 def _project(points: np.ndarray, camera_params: np.ndarray, K: np.ndarray) -> np.ndarray:
-    # camera_params: [rvec(3), tvec(3)]
     points_proj = _rotate(points, camera_params[:, :3])
     points_proj += camera_params[:, 3:6]
-    # Normalize
     points_proj = -points_proj[:, :2] / points_proj[:, 2, np.newaxis]
-    # Apply intrinsics
     fx, fy = K[0, 0], K[1, 1]
     cx, cy = K[0, 2], K[1, 2]
     points_proj[:, 0] = points_proj[:, 0] * fx + cx
@@ -282,9 +292,11 @@ def _ba_residuals(
 
 
 def run_bundle_adjustment(sfm_system: IncrementalSfM) -> IncrementalSfM:
+    print("\n--- Running Bundle Adjustment ---")
     n_cameras = len(sfm_system.camera_poses)
     n_points = len(sfm_system.point_cloud)
     if n_cameras < 2 or n_points < 10:
+        print("Not enough cameras/points for bundle adjustment.")
         return sfm_system
 
     camera_params: List[np.ndarray] = []
@@ -314,19 +326,31 @@ def run_bundle_adjustment(sfm_system: IncrementalSfM) -> IncrementalSfM:
     point_indices_np = np.array(point_indices)
     points_2d_np = np.array(points_2d)
     if len(points_2d_np) < max(2 * n_cameras, 20):
+        print("Insufficient observations for bundle adjustment; skipping refinement.")
         return sfm_system
 
+    print(f"Optimizing {n_cameras} cameras and {n_points} points with {len(points_2d_np)} observations.")
     x0 = np.hstack((camera_params_np.ravel(), points_3d_np.ravel()))
+    
+    initial_residuals = _ba_residuals(x0, n_cameras, n_points, camera_indices_np, point_indices_np, points_2d_np, sfm_system.K)
+    initial_cost = 0.5 * np.sum(initial_residuals**2)
+    print(f"Initial reprojection error (cost): {initial_cost:.4f}")
+    
     res = least_squares(
         _ba_residuals,
         x0,
-        verbose=0,
+        verbose=2,
         x_scale="jac",
         ftol=1e-4,
         method="trf",
         max_nfev=45,
         args=(n_cameras, n_points, camera_indices_np, point_indices_np, points_2d_np, sfm_system.K),
     )
+    
+    final_cost = res.cost
+    print(f"\nFinal reprojection error (cost): {final_cost:.4f}")
+    print(f"Cost reduction: {initial_cost - final_cost:.4f} ({100*(initial_cost - final_cost)/initial_cost:.2f}%)")
+    print(f"Optimization terminated: {res.message}")
 
     optimized_params = res.x
     new_camera_params = optimized_params[: n_cameras * 6].reshape((n_cameras, 6))
@@ -339,7 +363,9 @@ def run_bundle_adjustment(sfm_system: IncrementalSfM) -> IncrementalSfM:
         t = cp[3:].reshape(3, 1)
         updated_poses.append((R, t))
     sfm_system.camera_poses = updated_poses
-
+    
+    print("Bundle Adjustment Complete.")
+    gc.collect()
     return sfm_system
 
 

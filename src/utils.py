@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import os
+import gc
+from typing import List, Tuple, Iterable, Optional, Literal
 from typing import Any, Dict, Mapping, cast
 
 def load_images_from_folder(folder_path, target_width=1024):
@@ -34,31 +36,112 @@ def load_images_from_folder(folder_path, target_width=1024):
 def get_sift_matches(img1, img2, ratio_threshold=0.65, max_features=5000):
     """
     Finds SIFT matches using Lowe's Ratio Test.
+    Returns (kp1, kp2, good_matches)
     """
     sift = cv2.SIFT_create(nfeatures=max_features)  # type: ignore[attr-defined]
     kp1, des1 = sift.detectAndCompute(img1, None)
     kp2, des2 = sift.detectAndCompute(img2, None)
-    
     if des1 is None or des2 is None:
         return kp1, kp2, []
-    
     FLANN_INDEX_KDTREE = 1
     index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-    search_params = dict(checks=50) 
-    
+    search_params = dict(checks=50)
     flann = cv2.FlannBasedMatcher(cast(Dict[str, Any], index_params), cast(Dict[str, Any], search_params))  # type: ignore
-    
     try:
         matches = flann.knnMatch(des1, des2, k=2)
     except cv2.error:
         return kp1, kp2, []
-
     good_matches = []
     for m, n in matches:
         if m.distance < ratio_threshold * n.distance:
             good_matches.append(m)
-            
     return kp1, kp2, good_matches
+
+
+def set_global_memory_mode() -> None:
+    """
+    Configure common numeric dtypes to reduce memory usage.
+
+    - Prefer float32 over float64 where acceptable
+    - Enable OpenCV optimizations
+    """
+    np.set_printoptions(precision=5, suppress=True)
+    cv2.setUseOptimized(True)
+    cv2.setNumThreads(0)
+    # Note: callers still need to cast arrays to float32 explicitly.
+
+
+def downscale_image(img: np.ndarray, max_side: int = 1280) -> np.ndarray:
+    """Downscale image keeping aspect ratio so the largest side <= max_side."""
+    h, w = img.shape[:2]
+    scale = 1.0
+    if max(h, w) > max_side and max_side > 0:
+        scale = max_side / float(max(h, w))
+    if scale < 1.0:
+        new_w = max(1, int(round(w * scale)))
+        new_h = max(1, int(round(h * scale)))
+        img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return img
+
+
+def image_paths_to_batches(paths: List[str], batch_size: int = 8) -> Iterable[List[str]]:
+    """Yield image path batches without loading images into RAM all at once."""
+    batch: List[str] = []
+    for p in paths:
+        batch.append(p)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+
+def load_images_stream(
+    paths: List[str],
+    grayscale: bool = False,
+    max_side: Optional[int] = 1280,
+) -> Iterable[np.ndarray]:
+    """
+    Generator that yields images one-by-one, optionally downscaled.
+    Frees references promptly to minimize peak memory.
+    """
+    flag = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
+    for p in paths:
+        img = cv2.imread(p, flag)
+        if img is None:
+            continue
+        if max_side:
+            img = downscale_image(img, max_side=max_side)
+        yield img
+        del img
+        gc.collect()
+
+
+def to_float32(arr: np.ndarray) -> np.ndarray:
+    """Ensure array is float32 to halve memory vs float64."""
+    if arr.dtype != np.float32:
+        return arr.astype(np.float32, copy=False)
+    return arr
+
+
+def memmap_point_cloud(path: str, shape: Tuple[int, int], mode: Literal['r','r+','w+','c'] = 'w+') -> np.ndarray:
+    """
+    Create a memory-mapped file for large point clouds to avoid RAM spikes.
+    Example shape: (N, 3) for XYZ or (N, 6) for XYZRGB.
+    """
+    dtype = np.float32
+    mm = np.memmap(path, dtype=dtype, mode=mode, shape=shape)
+    return mm
+
+
+def free_large_objects(*objs) -> None:
+    """Delete large objects and trigger garbage collection."""
+    for o in objs:
+        try:
+            del o
+        except Exception:
+            pass
+    gc.collect()
 
 def get_dense_combined_matches(img1, img2,
                                sift_nfeatures=20000,
