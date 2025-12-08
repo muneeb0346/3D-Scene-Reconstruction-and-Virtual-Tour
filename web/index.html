@@ -22,66 +22,75 @@
 
 <body>
     <div id="app">
-        <div id="hud" class="panel">
-            <div class="panel__header">
-                <div>
-                    <div class="eyebrow">CS436 • Phase 3</div>
-                    <div class="title">Three.js Virtual Tour</div>
-                </div>
-                <button id="btn-reset" class="ghost">Reset View</button>
+        <div id="hud-container">
+            <div id="hud-trigger">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 8v4m0 4h.01" />
+                </svg>
+                <span>HOVER</span>
             </div>
+            <div id="hud" class="panel">
+                <div class="panel__header">
+                    <div>
+                        <div class="eyebrow">CS436 • Phase 3</div>
+                        <div class="title">Three.js Virtual Tour</div>
+                    </div>
+                    <button id="btn-reset" class="ghost">Reset View</button>
+                </div>
 
-            <div class="section">
-                <div class="section__title">Point Cloud</div>
-                <div class="row">
-                    <label class="file-label">
-                        <input type="file" id="file-input" accept=".ply" />
-                        <span>Load PLY</span>
-                    </label>
-                    <button id="btn-sample" class="pill">Sample Cloud</button>
-                    <button id="btn-screenshot" class="ghost">Screenshot</button>
+                <div class="section">
+                    <div class="section__title">Point Cloud</div>
+                    <div class="row">
+                        <label class="file-label">
+                            <input type="file" id="file-input" accept=".ply" />
+                            <span>Load PLY</span>
+                        </label>
+                        <button id="btn-sample" class="pill">Sample Cloud</button>
+                        <button id="btn-screenshot" class="ghost">Screenshot</button>
+                    </div>
+                    <div class="row">
+                        <input id="url-input" type="url" placeholder="Remote PLY URL (http/https)" />
+                        <button id="btn-load-url" class="pill">Load URL</button>
+                    </div>
+                    <div id="dropzone" class="dropzone">Drag & drop a PLY file anywhere</div>
+                    <label class="slider-label">Point size <input type="range" id="point-size" min="0.002" max="0.15"
+                            step="0.005" value="0.08" /></label>
+                    <div class="toggles">
+                        <label><input type="checkbox" id="toggle-autorotate" /> Auto-rotate</label>
+                        <label><input type="checkbox" id="toggle-grid" checked /> Grid</label>
+                    </div>
                 </div>
-                <div class="row">
-                    <input id="url-input" type="url" placeholder="Remote PLY URL (http/https)" />
-                    <button id="btn-load-url" class="pill">Load URL</button>
+
+                <div class="section">
+                    <div class="section__title">Camera Path</div>
+                    <div class="row">
+                        <label class="file-label">
+                            <input type="file" id="pose-input" accept=".json" />
+                            <span>Load Poses</span>
+                        </label>
+                        <button id="btn-sample-poses" class="ghost">Sample Poses</button>
+                    </div>
+                    <div class="row">
+                        <button id="btn-play" class="pill">Play Tour</button>
+                        <button id="btn-stop" class="ghost">Stop</button>
+                    </div>
+                    <p class="helper">Pose JSON fields: position [x,y,z] (meters), optional target [x,y,z]. R/t are also
+                        accepted (camera center = -R^T t).</p>
                 </div>
-                <div id="dropzone" class="dropzone">Drag & drop a PLY file anywhere</div>
-                <label class="slider-label">Point size <input type="range" id="point-size" min="0.002" max="0.15"
-                        step="0.005" value="0.08" /></label>
-                <div class="toggles">
-                    <label><input type="checkbox" id="toggle-autorotate" /> Auto-rotate</label>
-                    <label><input type="checkbox" id="toggle-grid" checked /> Grid</label>
+
+                <div class="section">
+                    <div class="section__title">Keyboard Controls</div>
+                    <p class="helper" style="line-height: 1.6;">
+                        <strong>Move:</strong> W/A/S/D<br>
+                        <strong>Raise/Lower:</strong> R/F<br>
+                        <strong>Rotate:</strong> Arrow Keys<br>
+                        <strong>Zoom:</strong> Mouse Scroll
+                    </p>
                 </div>
+
+                <div id="status" class="status">Drop a PLY or load the sample to begin.</div>
             </div>
-
-            <div class="section">
-                <div class="section__title">Camera Path</div>
-                <div class="row">
-                    <label class="file-label">
-                        <input type="file" id="pose-input" accept=".json" />
-                        <span>Load Poses</span>
-                    </label>
-                    <button id="btn-sample-poses" class="ghost">Sample Poses</button>
-                </div>
-                <div class="row">
-                    <button id="btn-play" class="pill">Play Tour</button>
-                    <button id="btn-stop" class="ghost">Stop</button>
-                </div>
-                <p class="helper">Pose JSON fields: position [x,y,z] (meters), optional target [x,y,z]. R/t are also
-                    accepted (camera center = -R^T t).</p>
-            </div>
-
-            <div class="section">
-                <div class="section__title">Keyboard Controls</div>
-                <p class="helper" style="line-height: 1.6;">
-                    <strong>Move:</strong> W/A/S/D<br>
-                    <strong>Raise/Lower:</strong> R/F<br>
-                    <strong>Rotate:</strong> Arrow Keys<br>
-                    <strong>Zoom:</strong> Mouse Scroll
-                </p>
-            </div>
-
-            <div id="status" class="status">Drop a PLY or load the sample to begin.</div>
         </div>
     </div>
 
