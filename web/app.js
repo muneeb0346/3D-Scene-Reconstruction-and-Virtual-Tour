@@ -105,7 +105,7 @@ function attachUI() {
 
     document.getElementById('btn-sample').addEventListener('click', () => {
         console.log('Sample Cloud button clicked');
-        loadPLYFromUrl('./data/demo_point_cloud.ply');
+        loadPLYFromUrl('./data/meshlab.ply');
     });
 
     document.getElementById('btn-screenshot').addEventListener('click', saveScreenshot);
@@ -135,7 +135,7 @@ function attachUI() {
     });
 
     document.getElementById('btn-sample-poses').addEventListener('click', () => {
-        loadPosesFromUrl('./data/sample_poses.json');
+        loadPosesFromUrl('./data/meshlab_poses.json');
     });
 
     document.getElementById('btn-play').addEventListener('click', () => {
