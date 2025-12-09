@@ -304,3 +304,31 @@ def sample_colors(img, pts):
         yi = min(max(int(round(y)), 0), h-1)
         colors.append(img_rgb[yi, xi])
     return np.array(colors, dtype=np.uint8)
+
+
+def filter_points(points_3d, colors=None, max_percentile=98):
+    """
+    Filter 3D points by removing non-finite values, negative depth, and extreme outliers.
+    
+    Args:
+        points_3d: Nx3 array of 3D points
+        colors: Optional Nx3 array of RGB colors
+        max_percentile: Percentile threshold for distance filtering (None to disable)
+    
+    Returns:
+        Tuple of (filtered_points, filtered_colors, mask)
+    """
+    if len(points_3d) == 0:
+        return points_3d, colors, np.ones(0, dtype=bool)
+    
+    mask = np.isfinite(points_3d).all(axis=1)
+    mask &= points_3d[:, 2] > 0  # Positive depth
+    
+    if mask.any() and max_percentile is not None:
+        dists = np.linalg.norm(points_3d, axis=1)
+        thr = np.percentile(dists[mask], max_percentile)
+        mask &= dists <= thr
+    
+    pts = points_3d[mask]
+    cols = colors[mask] if colors is not None else None
+    return pts, cols, mask
